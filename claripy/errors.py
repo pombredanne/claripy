@@ -13,13 +13,13 @@ class ClaripySerializationError(ClaripyError):
 class BackendError(ClaripyError):
     pass
 
+class BackendUnsupportedError(BackendError):
+    pass
+
 class ClaripyZ3Error(ClaripyError):
     pass
 
 class ClaripyBackendVSAError(BackendError):
-    pass
-
-class ClaripyVSASimplifierError(ClaripyBackendVSAError):
     pass
 
 #
@@ -29,7 +29,16 @@ class ClaripyVSASimplifierError(ClaripyBackendVSAError):
 class ClaripyASTError(ClaripyError):
     pass
 
+class ClaripyBalancerError(ClaripyASTError):
+    pass
+
+class ClaripyBalancerUnsatError(ClaripyBalancerError):
+    pass
+
 class ClaripyTypeError(ClaripyASTError):
+    pass
+
+class ClaripyValueError(ClaripyASTError):
     pass
 
 class ClaripySizeError(ClaripyASTError):
@@ -38,5 +47,11 @@ class ClaripySizeError(ClaripyASTError):
 class ClaripyOperationError(ClaripyASTError):
     pass
 
+class ClaripyReplacementError(ClaripyASTError):
+    pass
+
 class ClaripyRecursionError(ClaripyOperationError):
+    pass
+
+class ClaripyZeroDivisionError(ClaripyOperationError, ZeroDivisionError):
     pass

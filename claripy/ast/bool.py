@@ -1,61 +1,66 @@
 import logging
+from past.builtins import xrange
+
+from ..ast.base import Base, _make_name
+
 l = logging.getLogger('claripy.ast.bool')
 
-from ..ast.base import Base
+_boolv_cache = dict()
+
+# This is a hilarious hack to get around some sort of bug in z3's python bindings, where
+# under some circumstances stuff gets destructed out of order
+def cleanup():
+    global _boolv_cache #pylint:disable=global-variable-not-assigned
+    del _boolv_cache
+import atexit
+atexit.register(cleanup)
 
 class Bool(Base):
     @staticmethod
     def _from_bool(like, val): #pylint:disable=unused-argument
-        return BoolI(val)
+        return BoolV(val)
 
     def is_true(self):
-        '''
-        Returns True if 'self' can be easily determined to be True.
-        Otherwise, return False. Note that the AST *might* still be True (i.e.,
-        if it were simplified via Z3), but it's hard to quickly tell that.
-        '''
+        """
+        Returns True if 'self' can be easily determined to be True. Otherwise, return False. Note that the AST *might*
+        still be True (i.e., if it were simplified via Z3), but it's hard to quickly tell that.
+        """
         return is_true(self)
 
     def is_false(self):
-        '''
-        Returns True if 'self' can be easily determined to be False.
-        Otherwise, return False. Note that the AST *might* still be False (i.e.,
-        if it were simplified via Z3), but it's hard to quickly tell that.
-        '''
+        """
+        Returns True if 'self' can be easily determined to be False. Otherwise, return False. Note that the AST *might*
+        still be False (i.e., if it were simplified via Z3), but it's hard to quickly tell that.
+        """
         return is_false(self)
 
-    def _simplify_And(self):
-        if any(a.is_false() for a in self.args):
-            return BoolI(False)
-        else:
-            new_args = [ a.simplified for a in self.args if not a.is_true() ]
-            if len(new_args) == 0:
-                return BoolI(True)
-            else:
-                return Bool(self.op, new_args)
 
-    def _simplify_Or(self):
-        if any(a.is_true() for a in self.args):
-            return BoolI(True)
-        else:
-            new_args = [ a.simplified for a in self.args if not a.is_false() ]
-            if len(new_args) == 0:
-                return BoolI(False)
-            else:
-                return Bool(self.op, new_args)
+def BoolS(name, explicit_name=None):
+    """
+    Creates a boolean symbol (i.e., a variable).
 
-def BoolI(model, **kwargs):
-    return Bool('I', (model,), **kwargs)
+    :param name:            The name of the symbol
+    :param explicit_name:   If False, an identifier is appended to the name to ensure uniqueness.
 
-def BoolVal(val):
-    return BoolI(val, variables=set(), symbolic=False, eager=True)
+    :return:                A Bool object representing this symbol.
+    """
+    n = _make_name(name, -1, False if explicit_name is None else explicit_name)
+    return Bool('BoolS', (n,), variables={n}, symbolic=True)
+
+def BoolV(val):
+    try:
+        return _boolv_cache[(val)]
+    except KeyError:
+        result = Bool('BoolV', (val,))
+        _boolv_cache[val] = result
+        return result
 
 #
 # some standard ASTs
 #
 
-true = BoolVal(True)
-false = BoolVal(False)
+true = BoolV(True)
+false = BoolV(False)
 
 #
 # Bound operations
@@ -65,6 +70,7 @@ from .. import operations
 
 Bool.__eq__ = operations.op('__eq__', (Bool, Bool), Bool)
 Bool.__ne__ = operations.op('__ne__', (Bool, Bool), Bool)
+Bool.intersection = operations.op('intersection', (Bool, Bool), Bool)
 
 #
 # Unbound operations
@@ -78,7 +84,7 @@ def If(*args):
     args = list(args)
 
     if isinstance(args[0], bool):
-        args[0] = BoolI(args[0], variables=frozenset(), symbolic=False, eager=True)
+        args[0] = BoolV(args[0])
 
     ty = None
     if isinstance(args[1], Base):
@@ -87,6 +93,9 @@ def If(*args):
         ty = type(args[2])
     else:
         raise ClaripyTypeError("true/false clause of If must have bearable types")
+
+    if isinstance(args[1], Bits) and isinstance(args[2], Bits) and args[1].length != args[2].length:
+        raise ClaripyTypeError("sized arguments to If must have the same length")
 
     if not isinstance(args[1], ty):
         if hasattr(ty, '_from_' + type(args[1]).__name__):
@@ -102,34 +111,39 @@ def If(*args):
             raise ClaripyTypeError("can't convert {} to {}".format(type(args[2]), ty))
 
     if is_true(args[0]):
-        return args[1].make_like(args[1].op, args[1].args,
-                                 variables=(args[1].variables | args[0].variables),
-                                 symbolic=args[1].symbolic)
+        return args[1]
     elif is_false(args[0]):
-        return args[2].make_like(args[2].op, args[2].args,
-                                 variables=(args[2].variables | args[0].variables),
-                                 symbolic=args[2].symbolic)
+        return args[2]
+
+    if isinstance(args[1], Base) and args[1].op == 'If' and args[1].args[0] is args[0]:
+        return If(args[0], args[1].args[1], args[2])
+    if isinstance(args[1], Base) and args[1].op == 'If' and args[1].args[0] is Not(args[0]):
+        return If(args[0], args[1].args[2], args[2])
+    if isinstance(args[2], Base) and args[2].op == 'If' and args[2].args[0] is args[0]:
+        return If(args[0], args[1], args[2].args[2])
+    if isinstance(args[2], Base) and args[2].op == 'If' and args[2].args[0] is Not(args[0]):
+        return If(args[0], args[1], args[2].args[1])
 
     if issubclass(ty, Bits):
         return ty('If', tuple(args), length=args[1].length)
     else:
-        return ty('If', tuple(args)).reduced
+        return ty('If', tuple(args))
 
 And = operations.op('And', Bool, Bool, bound=False)
 Or = operations.op('Or', Bool, Bool, bound=False)
 Not = operations.op('Not', (Bool,), Bool, bound=False)
 
-def is_true(e):
-    for b in _all_backends:
-        try: return b.is_true(b.convert(e))
+def is_true(e, exact=None): #pylint:disable=unused-argument
+    for b in backends._quick_backends:
+        try: return b.is_true(e)
         except BackendError: pass
 
     l.debug("Unable to tell the truth-value of this expression")
     return False
 
-def is_false(e):
-    for b in _all_backends:
-        try: return b.is_false(b.convert(e))
+def is_false(e, exact=None): #pylint:disable=unused-argument
+    for b in backends._quick_backends:
+        try: return b.is_false(e)
         except BackendError: pass
 
     l.debug("Unable to tell the truth-value of this expression")
@@ -145,27 +159,28 @@ def ite_cases(cases, default):
     return sofar
 
 def constraint_to_si(expr):
-    '''
-    Convert a constraint to SI if possible
+    """
+    Convert a constraint to SI if possible.
+
     :param expr:
     :return:
-    '''
+    """
 
     satisfiable = True
     replace_list = [ ]
 
-    satisfiable, replace_list = _all_backends[1].constraint_to_si(expr)
+    satisfiable, replace_list = backends.vsa.constraint_to_si(expr)
 
     # Make sure the replace_list are all ast.bvs
     for i in xrange(len(replace_list)):
         ori, new = replace_list[i]
         if not isinstance(new, Base):
-            new = BVI(new, variables={ new.name }, symbolic=False, length=new._bits, eager=False)
+            new = BVS(new.name, new._bits, min=new._lower_bound, max=new._upper_bound, stride=new._stride, explicit_name=True)
             replace_list[i] = (ori, new)
 
     return satisfiable, replace_list
 
-from .. import _all_backends
+from ..backend_manager import backends
 from ..errors import ClaripyOperationError, ClaripyTypeError, BackendError
 from .bits import Bits
-from .bv import BVI
+from .bv import BVS

@@ -59,6 +59,9 @@ class FSort(object):
     def __repr__(self):
         return self.name
 
+    def __hash__(self):
+        return hash((self.name, self.exp, self.mantissa))
+
     @property
     def length(self):
         return self.exp + self.mantissa
@@ -99,11 +102,10 @@ class FPV(BackendObject):
         return hash((self.value, self.sort))
 
     def __getstate__(self):
-        return (self.value, self.sort)
+        return self.value, self.sort
 
-    def __setstate__(self, (value, sort)):
-        self.value = value
-        self.sort = sort
+    def __setstate__(self, st):
+        self.value, self.sort = st
 
     def __abs__(self):
         return FPV(abs(self.value), self.sort)
@@ -133,7 +135,7 @@ class FPV(BackendObject):
 
     @normalize_types
     @compare_sorts
-    def __div__(self, o):
+    def __truediv__(self, o):
         try:
             return FPV(self.value / o.value, self.sort)
         except ZeroDivisionError:
@@ -141,6 +143,11 @@ class FPV(BackendObject):
                 return FPV(float('-inf'), self.sort)
             else:
                 return FPV(float('inf'), self.sort)
+
+    def __div__(self, other):
+        return self.__truediv__(other)
+    def __floordiv__(self, other): # decline to involve integers in this floating point process
+        return self.__truediv__(other)
 
     #
     # Reverse arithmetic stuff
@@ -168,7 +175,7 @@ class FPV(BackendObject):
 
     @normalize_types
     @compare_sorts
-    def __rdiv__(self, o):
+    def __rtruediv__(self, o):
         try:
             return FPV(o.value / self.value, self.sort)
         except ZeroDivisionError:
@@ -176,6 +183,11 @@ class FPV(BackendObject):
                 return FPV(float('-inf'), self.sort)
             else:
                 return FPV(float('inf'), self.sort)
+
+    def __rdiv__(self, other):
+        return self.__rtruediv__(other)
+    def __rfloordiv__(self, other): # decline to involve integers in this floating point process
+        return self.__rtruediv__(other)
 
     #
     # Boolean stuff
@@ -224,8 +236,12 @@ def fpToFP(a1, a2, a3=None):
         else:
             raise ClaripyOperationError("unrecognized float sort")
 
-        packed = struct.pack('<' + pack, a1.value)
-        unpacked, = struct.unpack('<' + unpack, packed)
+        try:
+            packed = struct.pack('<' + pack, a1.value)
+            unpacked, = struct.unpack('<' + unpack, packed)
+        except OverflowError as e:
+            # struct.pack sometimes overflows
+            raise ClaripyOperationError("OverflowError: " + str(e))
 
         return FPV(unpacked, sort)
     elif isinstance(a1, RM) and isinstance(a2, FPV) and isinstance(a3, FSort):
@@ -247,8 +263,12 @@ def fpToIEEEBV(fpv):
     else:
         raise ClaripyOperationError("unrecognized float sort")
 
-    packed = struct.pack('<' + pack, fpv.value)
-    unpacked, = struct.unpack('<' + unpack, packed)
+    try:
+        packed = struct.pack('<' + pack, fpv.value)
+        unpacked, = struct.unpack('<' + unpack, packed)
+    except OverflowError as e:
+        # struct.pack sometimes overflows
+        raise ClaripyOperationError("OverflowError: " + str(e))
 
     return BVV(unpacked, fpv.sort.length)
 
@@ -263,8 +283,12 @@ def fpFP(sgn, exp, mantissa):
     else:
         raise ClaripyOperationError("unrecognized float sort")
 
-    packed = struct.pack('<' + pack, concatted.value)
-    unpacked, = struct.unpack('<' + unpack, packed)
+    try:
+        packed = struct.pack('<' + pack, concatted.value)
+        unpacked, = struct.unpack('<' + unpack, packed)
+    except OverflowError as e:
+        # struct.pack sometimes overflows
+        raise ClaripyOperationError("OverflowError: " + str(e))
 
     return FPV(unpacked, sort)
 
@@ -293,6 +317,9 @@ def fpToUBV(rm, fp, size):
 
 def fpEQ(a, b):
     return a == b
+
+def fpNE(a, b):
+    return a != b
 
 def fpGT(a, b):
     return a > b

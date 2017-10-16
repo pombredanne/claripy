@@ -1,6 +1,6 @@
 #import time
 
-from ..backend import Backend
+from .backend import Backend
 from .backend_z3 import BackendZ3
 try:
     from . import remotetasks
@@ -19,7 +19,7 @@ class TrackingSolver(object):
 def get(res):
     #before = time.time()
     result = res.get(interval=0.02)
-    # print "task took %f" % (time.time() - before)
+    # print("task took %f" % (time.time() - before))
     return result
 
 class BackendRemote(Backend):
@@ -38,10 +38,10 @@ class BackendRemote(Backend):
     #def _abstract(self, e):
     #   return e
 
-    def _convert(self, e, result=None):
+    def _convert(self, e):
         return e
 
-    def call(self, ast, result=None):
+    def resolve(self, ast):
         return ast
 
     def _add(self, s, c):
@@ -52,47 +52,54 @@ class BackendRemote(Backend):
         for x in s.plus_extra(extra_constraints):
             if hasattr(x, 'make_uuid'):
                 x.make_uuid()
-        # print pickle.dumps(s.plus_extra(extra_constraints))
+        # print(pickle.dumps(s.plus_extra(extra_constraints)))
         res = remotetasks.check.delay(s.plus_extra(extra_constraints))
         return get(res)
 
-    def _eval(self, expr, n, solver=None, extra_constraints=(), result=None):
+    def _eval(self, expr, n, solver=None, extra_constraints=()):
         for x in solver.plus_extra(extra_constraints):
             if hasattr(x, 'make_uuid'):
                 x.make_uuid()
-        # print pickle.dumps(s.plus_extra(extra_constraints))
+        # print(pickle.dumps(s.plus_extra(extra_constraints)))
         res = remotetasks.eval.delay(solver.plus_extra(extra_constraints), expr, n)
+        return get(res)
+
+    def _batch_eval(self, exprs, n, extra_constraints=(), solver=None):
+        for x in solver.plus_extra(extra_constraints):
+            if hasattr(x, 'make_uuid'):
+                x.make_uuid()
+        res = remotetasks.batch_eval.delay(solver.plus_extra(extra_constraints), exprs, n)
         return get(res)
 
     def _results(self, s, extra_constraints=(), generic_model=True):
         for x in s.plus_extra(extra_constraints):
             if hasattr(x, 'make_uuid'):
                 x.make_uuid()
-        # print pickle.dumps(s.plus_extra(extra_constraints))
+        # print(pickle.dumps(s.plus_extra(extra_constraints)))
         res = remotetasks.results.delay(s.plus_extra(extra_constraints))
         return get(res)
 
-    def _min(self, expr, solver=None, extra_constraints=(), result=None):
+    def _min(self, expr, solver=None, extra_constraints=()):
         for x in solver.plus_extra(extra_constraints):
             if hasattr(x, 'make_uuid'):
                 x.make_uuid()
-        # print pickle.dumps(s.plus_extra(extra_constraints))
+        # print(pickle.dumps(s.plus_extra(extra_constraints)))
         res = remotetasks.min.delay(solver.plus_extra(extra_constraints), expr)
         return get(res)
 
-    def _max(self, expr, result=None, extra_constraints=(), solver=None):
+    def _max(self, expr, extra_constraints=(), solver=None):
         for x in solver.plus_extra(extra_constraints):
             if hasattr(x, 'make_uuid'):
                 x.make_uuid()
-        # print pickle.dumps(s.plus_extra(extra_constraints))
+        # print(pickle.dumps(s.plus_extra(extra_constraints)))
         res = remotetasks.max.delay(solver.plus_extra(extra_constraints), expr)
         return get(res)
 
-    def _size(self, o, result=None):
+    def _size(self, o):
         return o.length
 
-    def _name(self, o, result=None):
-        raise Exception('wat')
+    def _name(self, o):
+        raise Exception('wat') # TODO: Be more explicit :p
 
-    def _identical(self, a, b, result=None):
+    def _identical(self, a, b):
         return a.identical(b)

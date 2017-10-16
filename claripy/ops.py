@@ -1,4 +1,5 @@
 import logging
+
 l = logging.getLogger("claripy.ops")
 
 #
@@ -25,9 +26,7 @@ from .ast.fp import *
 from .ast.bool import *
 from . import vsa
 
-BVV = BitVecVal
-BV = BitVec
 VS = ValueSet
-SI = StridedInterval
-TSI = TopStridedInterval
-ESI = EmptyStridedInterval
+#SI = StridedInterval
+#TSI = TopStridedInterval
+#ESI = EmptyStridedInterval

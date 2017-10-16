@@ -1,33 +1,97 @@
+from past.builtins import long
+
 from .bits import Bits
-from ..ast.base import Base, _make_name
+from ..ast.base import _make_name
 
 class FP(Bits):
-    def to_fp(self, rm, sort):
+    """
+    An AST representing a set of operations culminating in an IEEE754 floating point number.
+
+    Do not instantiate this class directly, instead use FPV or FPS to construct a value or symbol, and then use
+    operations to construct more complicated expressions.
+
+    :ivar length:   The length of this value
+    :ivar sort:     The sort of this value, usually either FSORT_FLOAT or FSORT_DOUBLE
+    """
+    def to_fp(self, sort, rm=None):
+        """
+        Convert this float to a different sort
+
+        :param sort:    The sort to convert to
+        :param rm:      Optional: The rounding mode to use
+        :return:        An FP AST
+        """
         if rm is None:
             rm = fp.RM.default()
 
         return fpToFP(rm, self, sort)
 
     def raw_to_fp(self):
+        """
+        A counterpart to BV.raw_to_fp - does nothing and returns itself.
+        """
         return self
 
-    def to_bv(self):
+    def raw_to_bv(self):
+        """
+        Interpret the bit-pattern of this IEEE754 floating point number as a bitvector.
+        The inverse of this function is to_bv.
+
+        :return:        A BV AST whose bit-pattern is the same as this FP
+        """
         return fpToIEEEBV(self)
+
+    def to_bv(self):
+        return self.raw_to_bv()
+
+    def val_to_bv(self, size, signed=True, rm=None):
+        """
+        Convert this floating point value to an integer.
+
+        :param size:    The size of the bitvector to return
+        :param signed:  Optional: Whether the target integer is signed
+        :param rm:      Optional: The rounding mode to use
+        :return:        A bitvector whose value is the rounded version of this FP's value
+        """
+        if rm is None:
+            rm = fp.RM.default()
+
+        op = fpToSBV if signed else fpToUBV
+        return op(rm, self, size)
 
     @property
     def sort(self):
         return fp.FSort.from_size(self.length)
 
-def FPI(model, **kwargs):
-    kwargs['length'] = model.sort.length
-    return FP('I', (model,), **kwargs)
+    @staticmethod
+    def _from_float(like, value):
+        return FPV(float(value), like.sort)
 
-def FloatingPoint(name, sort, explicit_name=None):
-    n = _make_name(name, sort.length, explicit_name=explicit_name, prefix='FP_')
-    return FP('FP', (n, sort), variables={n}, symbolic=True, simplified=Base.FULL_SIMPLIFY, length=sort.length)
+    _from_int = _from_float
+    _from_str = _from_float
 
-def FPV(*args):
-    return FPI(fp.FPV(*args), variables=set(), symbolic=False, simplified=Base.FULL_SIMPLIFY, eager=True)
+def FPS(name, sort, explicit_name=None):
+    """
+    Creates a floating-point symbol.
+
+    :param name:            The name of the symbol
+    :param sort:            The sort of the floating point
+    :param explicit_name:   If False, an identifier is appended to the name to ensure uniqueness.
+    :return:                An FP AST.
+    """
+
+    n = _make_name(name, sort.length, False if explicit_name is None else explicit_name, prefix='FP_')
+    return FP('FPS', (n, sort), variables={n}, symbolic=True, length=sort.length)
+
+def FPV(value, sort):
+    """
+    Creates a concrete floating-point value.
+
+    :param value:   The value of the floating point.
+    :param sort:    The sort of the floating point.
+    :return:        An FP AST.
+    """
+    return FP('FPV', (value, sort), length=sort.length)
 
 #
 # unbound floating point conversions
@@ -84,4 +148,23 @@ fpDiv = operations.op('fpDiv', (fp.RM, FP, FP), FP, bound=False, extra_check=_fp
 #
 # bound fp operations
 #
-fp.__eq__ = operations.op('fpEQ', (FP, FP), Bool, extra_check=_fp_cmp_check)
+
+FP.__eq__ = operations.op('fpEQ', (FP, FP), Bool, extra_check=_fp_cmp_check)
+FP.__ne__ = operations.op('fpNE', (FP, FP), Bool, extra_check=_fp_cmp_check)
+FP.__ge__ = operations.op('fpGEQ', (FP, FP), Bool, extra_check=_fp_cmp_check)
+FP.__le__ = operations.op('fpLEQ', (FP, FP), Bool, extra_check=_fp_cmp_check)
+FP.__gt__ = operations.op('fpGT', (FP, FP), Bool, extra_check=_fp_cmp_check)
+FP.__lt__ = operations.op('fpLT', (FP, FP), Bool, extra_check=_fp_cmp_check)
+
+FP.__abs__ = fpAbs
+FP.__neg__ = fpNeg
+
+FP.__add__ = fpAdd
+FP.__sub__ = fpSub
+FP.__mul__ = fpMul
+FP.__div__ = fpDiv
+
+FP.__radd__ = operations.reversed_op(FP.__add__)
+FP.__rsub__ = operations.reversed_op(FP.__sub__)
+FP.__rmul__ = operations.reversed_op(FP.__mul__)
+FP.__rdiv__ = operations.reversed_op(FP.__div__)
